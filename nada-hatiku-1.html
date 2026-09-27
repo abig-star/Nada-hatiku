@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nada Hatiku</title>
+<style>
+:root{
+  --bg1:#2b2b3a; --bg2:#1c1c26; --card:#ffffffcc; --text:#2b2b3a; --sub:#5a5a6a;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --card:#2a2a38cc; --text:#f0eef7; --sub:#c9c6d8; }
+}
+:root[data-theme="dark"]{ --card:#2a2a38cc; --text:#f0eef7; --sub:#c9c6d8; }
+*{box-sizing:border-box;}
+html,body{height:100%; margin:0;}
+body{
+  font-family:'Comfortaa','Quicksand',system-ui,sans-serif;
+  background:linear-gradient(160deg,var(--bg1),var(--bg2));
+  transition:background 2.5s ease;
+  overflow:hidden; display:flex; align-items:center; justify-content:center;
+  color:var(--text);
+}
+#app{ width:100%; max-width:480px; height:100%; max-height:900px; position:relative;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; padding:16px; }
+.screen{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  padding:24px; text-align:center; opacity:0; pointer-events:none; transition:opacity .8s ease; }
+.screen.active{ opacity:1; pointer-events:auto; }
+h1{ font-size:1.6em; margin:0 0 8px; }
+p.sub{ color:var(--sub); font-size:.95em; max-width:320px; }
+button.primary{
+  margin-top:20px; padding:12px 28px; border-radius:999px; border:none;
+  background:#f5c26b; color:#2b2b3a; font-weight:700; font-size:1em; cursor:pointer;
+  box-shadow:0 4px 14px #00000040;
+}
+.breath{ width:60px; height:60px; border-radius:50%; background:#ffffff55; margin-bottom:18px;
+  animation:breathe 12s ease-in-out infinite; }
+@keyframes breathe{ 0%,100%{transform:scale(.7);} 33%{transform:scale(1.15);} 66%{transform:scale(1.15);} }
+.notes-wrap{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:14px; }
+.note{
+  width:64px; height:64px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  font-size:1.6em; background:#ffffff30; border:2px solid #ffffff50; cursor:pointer; user-select:none;
+  transition:transform .2s, box-shadow .2s, opacity .3s;
+}
+.note.dim{ opacity:.35; pointer-events:none; }
+.note.glow{ box-shadow:0 0 22px 6px currentColor; transform:scale(1.12); }
+.affirm{ position:absolute; bottom:38%; left:50%; transform:translateX(-50%);
+  font-size:1em; font-weight:700; color:#ffffff; opacity:0; white-space:nowrap; pointer-events:none;
+  background:#1c1c26cc; padding:8px 18px; border-radius:999px;
+  text-shadow:0 1px 3px #00000080; box-shadow:0 4px 16px #00000040;
+  animation:floatUp 2.4s ease forwards; }
+@keyframes floatUp{ 0%{opacity:0; transform:translate(-50%,10px);} 20%{opacity:1;} 80%{opacity:1;} 100%{opacity:0; transform:translate(-50%,-40px);} }
+canvas#card{ width:260px; max-width:80vw; border-radius:14px; box-shadow:0 8px 30px #0006; margin-bottom:12px; }
+.small{ font-size:.8em; color:var(--sub); margin-top:6px; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="screen active" id="s-intro">
+    <h1>Nada Hatiku</h1>
+    <p class="sub">Piano tua ini menyimpan delapan nada. Setiap nada adalah satu bagian dari dirimu.</p>
+    <button class="primary" id="btnStart">Mulai</button>
+  </div>
+
+  <div class="screen" id="s-play">
+    <div class="breath" id="breathCircle"></div>
+    <p class="small" id="breathLabel">Tarik napas…</p>
+    <div class="notes-wrap" id="notesWrap"></div>
+    <button class="primary" id="btnFinish" style="display:none;">Selesai &amp; Simpan Laguku</button>
+  </div>
+
+  <div class="screen" id="s-end">
+    <h1>Lagu ini adalah aku.</h1>
+    <p class="sub">Dan aku indah.</p>
+    <canvas id="card" width="520" height="920"></canvas>
+    <button class="primary" id="btnMenu">Kembali ke Menu</button>
+  </div>
+
+</div>
+
+<script>
+const NOTES = [
+  {n:'Do', freq:261.63, color:'#f3a6c1', icon:'❤️', text:'Aku mencintai diriku.'},
+  {n:'Re', freq:293.66, color:'#f2a45c', icon:'☀️', text:'Aku hangat bagi diriku.'},
+  {n:'Mi', freq:329.63, color:'#f5d95c', icon:'⭐', text:'Aku bersinar dengan caraku.'},
+  {n:'Fa', freq:349.23, color:'#7fce8a', icon:'🌱', text:'Aku tumbuh setiap hari.'},
+  {n:'Sol', freq:392.00, color:'#7ec8e3', icon:'🌊', text:'Aku tenang di dalam.'},
+  {n:'La', freq:440.00, color:'#a58ee0', icon:'🌙', text:'Aku damai malam ini.'},
+  {n:'Si', freq:493.88, color:'#e36b6b', icon:'🔥', text:'Aku kuat dan berani.'},
+  {n:"Do'", freq:523.25, color:'#f0c95c', icon:'✨', text:'Aku utuh dan lengkap.'}
+];
+
+let ctx;
+function tone(freq, dur=1.2, vol=0.35){
+  ctx = ctx || new (window.AudioContext||window.webkitAudioContext)();
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type='sine'; o.frequency.value=freq;
+  g.gain.setValueAtTime(0.001, ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(vol, ctx.currentTime+0.06);
+  g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+dur);
+  o.connect(g); g.connect(ctx.destination);
+  o.start(); o.stop(ctx.currentTime+dur);
+}
+
+function playOutro(){
+  const up   = [523.25,659.25,783.99,1046.50];   // C5 E5 G5 C6 — frasa naik
+  const down = [880.00,783.99,659.25,523.25];    // A5 G5 E5 C5 — frasa jawaban turun
+  let t = 0;
+  up.forEach((f,i)=> setTimeout(()=> tone(f, 1.0, 0.4), i*220));
+  t = up.length*220 + 180;
+  down.forEach((f,i)=> setTimeout(()=> tone(f, 1.0, 0.35), t+i*220));
+  t += down.length*220 + 320;
+  setTimeout(()=>{ // akord hangat mengambang
+    [523.25,659.25,783.99].forEach(f=> tone(f, 4.0, 0.28));
+  }, t);
+  setTimeout(()=>{ // kilau tiga nada di atas akord
+    [1046.50,1174.66,1318.51].forEach((f,i)=> setTimeout(()=> tone(f, 1.6, 0.22), i*200));
+  }, t+450);
+}
+
+function lighten(hex, amt){
+  const c = hex.replace('#','');
+  const r = parseInt(c.substring(0,2),16), g = parseInt(c.substring(2,4),16), b = parseInt(c.substring(4,6),16);
+  const mix = (v)=> Math.round(v + (255-v)*amt);
+  return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
+}
+
+function showEndBg(){
+  const used = trail.length ? trail.map(i=>NOTES[i].color) : ['#f3a6c1','#f0c95c'];
+  const soft = used.map(c=> lighten(c, 0.55));
+  document.body.style.background = 'linear-gradient(160deg,' + soft.join(',') + ')';
+}
+
+const wrap = document.getElementById('notesWrap');
+const trail = []; // {noteIndex}
+let step = 0, freePlay = false;
+
+NOTES.forEach((note, i)=>{
+  const el = document.createElement('div');
+  el.className='note dim';
+  el.style.color = note.color;
+  el.style.background = note.color+'33';
+  el.textContent = note.icon;
+  el.dataset.i = i;
+  el.addEventListener('click', ()=>playNote(i, el));
+  wrap.appendChild(el);
+});
+
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function updateBg(){
+  const used = trail.map(t=>NOTES[t].color);
+  if(used.length===0){ document.body.style.background = 'linear-gradient(160deg,#2b2b3a,#1c1c26)'; return; }
+  document.body.style.background = 'linear-gradient(160deg,' + used.join(',') + ')';
+}
+
+function playNote(i, el){
+  if(!freePlay && i !== step) return;
+  tone(NOTES[i].freq, 1.2, 0.6);
+  el.classList.add('glow');
+  setTimeout(()=>el.classList.remove('glow'), 400);
+  trail.push(i);
+  updateBg();
+  const a = document.createElement('div');
+  a.className='affirm'; a.style.color = NOTES[i].color;
+  a.textContent = NOTES[i].text;
+  document.getElementById('s-play').appendChild(a);
+  setTimeout(()=>a.remove(), 2500);
+
+  if(!freePlay){
+    step++;
+    if(step >= NOTES.length){
+      freePlay = true;
+      document.querySelectorAll('.note').forEach(n=>n.classList.remove('dim'));
+      document.getElementById('btnFinish').style.display='inline-block';
+    } else {
+      document.querySelectorAll('.note').forEach((n,idx)=>{
+        n.classList.toggle('dim', idx!==step);
+      });
+    }
+  }
+}
+
+document.getElementById('btnStart').addEventListener('click', ()=>{
+  showScreen('s-play');
+  document.querySelectorAll('.note').forEach((n,idx)=> n.classList.toggle('dim', idx!==0));
+});
+
+document.getElementById('btnFinish').addEventListener('click', ()=>{
+  drawCard();
+  showEndBg();
+  showScreen('s-end');
+  playOutro();
+});
+
+function drawCard(){
+  const c = document.getElementById('card');
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0,0,0,c.height);
+  const usedColors = trail.length ? trail.map(i=> lighten(NOTES[i].color,0.35)) : ['#e8e6ec'];
+  usedColors.forEach((col,idx)=> grad.addColorStop(idx/(Math.max(usedColors.length-1,1)), col));
+  g.fillStyle = grad; g.fillRect(0,0,c.width,c.height);
+
+  // trail pattern
+  g.lineWidth = 4; g.globalAlpha = 0.85;
+  const cx = c.width/2, cy = 360, r = 160;
+  g.beginPath();
+  trail.forEach((idx,k)=>{
+    const ang = (k / trail.length) * Math.PI*2 - Math.PI/2;
+    const x = cx + Math.cos(ang)*r, y = cy + Math.sin(ang)*r;
+    if(k===0) g.moveTo(x,y); else g.lineTo(x,y);
+    g.fillStyle = lighten(NOTES[idx].color, 0.12);
+    g.beginPath(); g.arc(x,y,10,0,7); g.fill();
+    g.beginPath();
+  });
+  g.globalAlpha = 1;
+
+  g.fillStyle = '#3d3a45'; g.font = 'bold 34px sans-serif'; g.textAlign='center';
+  g.fillText('Nada Hatiku', c.width/2, 80);
+  g.font = '20px sans-serif';
+  g.fillText('Setiap hati punya nadanya.', c.width/2, 830);
+  g.font = 'italic 18px sans-serif';
+  g.fillText(new Date().toLocaleDateString('id-ID'), c.width/2, 870);
+}
+
+document.getElementById('btnMenu').addEventListener('click', ()=>{
+  step = 0; freePlay = false; trail.length = 0;
+  document.querySelectorAll('.note').forEach((n,idx)=> n.classList.toggle('dim', idx!==0));
+  document.getElementById('btnFinish').style.display='none';
+  document.body.style.background = 'linear-gradient(160deg,#2b2b3a,#1c1c26)';
+  showScreen('s-intro');
+});
+
+</script>
+</body>
+</html>
